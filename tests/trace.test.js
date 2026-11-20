@@ -48,6 +48,11 @@
     eq(isNaN(t.columns[1].values[1]), true, 'gap');
     eq(t.columns[1].values[2], 3, 'value');
   });
+  test('nan and inf, as a C library prints them, are gaps and do not make a column text', function () {
+    var t = T.toTable(T.parseCsv('t_s,a\n0,1\n1,nan\n2,-nan\n3,inf\n4,-inf\n5,2\n'));
+    eq(t.columns[1].kind, 'real', 'kind');
+    eq(Array.prototype.map.call(t.columns[1].values, function (v) { return isNaN(v); }), [false, true, true, true, true, false], 'gaps');
+  });
   test('a column with one non-number is text', function () {
     var t = T.toTable(T.parseCsv('t_s,a\n0,1\n1,none\n'));
     eq(t.columns[1].kind, 'text', 'kind');

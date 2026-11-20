@@ -8,6 +8,9 @@
 (function (root) {
   'use strict';
 
+  /* what a C library prints for NaN and infinity; read as a gap (trace-format.md) */
+  var NOT_FINITE = /^[+-]?(nan|inf|infinity)$/i;
+
   var UNITS = { rpm: 'rpm', nm: 'N·m', pct: '%', bar: 'bar', kpa: 'kPa', c: '°C', frac: 'fraction' };
 
   /** Splits the text into a header and rows of strings. Never throws. */
@@ -59,14 +62,14 @@
         raw[r] = s;
         if (s !== '') {
           anyValue = true;
-          if (!isFinite(Number(s))) { allNumbers = false; }
+          if (!isFinite(Number(s)) && !NOT_FINITE.test(s)) { allNumbers = false; }
         }
       }
       var col = { name: parsed.names[c], kind: 'empty' };
       if (anyValue && allNumbers) {
         col.kind = 'real';
         col.values = new Float64Array(raw.length);
-        for (var k = 0; k < raw.length; k++) { col.values[k] = raw[k] === '' ? NaN : Number(raw[k]); }
+        for (var k = 0; k < raw.length; k++) { col.values[k] = (raw[k] === '' || NOT_FINITE.test(raw[k])) ? NaN : Number(raw[k]); }
       } else if (anyValue) {
         col.kind = 'text';
         col.values = raw;
