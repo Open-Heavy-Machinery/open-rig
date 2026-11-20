@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: Apache-2.0
+name: ci
+
+# Once per commit: on push to main, and on pull requests.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: trace reader tests (headless Chrome)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/index.html
+        run: |
+          out=$(google-chrome --headless=new --no-sandbox --disable-gpu --virtual-time-budget=3000 --dump-dom "file://$PWD/tests/index.html" 2>/dev/null)
+          echo "$out" | sed -n '/<pre/,/<\/pre>/p'
+          echo "$out" | grep -q '^<pre id="out">PASS' || { echo "FAIL: the tests did not pass"; exit 1; }
+
+  page:
+    name: the page loads an example and draws it
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Serve and load examples/hoist_step.csv with its layout
+        run: |
+          python3 -m http.server 8765 --bind 127.0.0.1 >/dev/null 2>&1 &
+          sleep 1
+          dom=$(google-chrome --headless=new --no-sandbox --disable-gpu --virtual-time-budget=5000 --dump-dom \
+            "http://127.0.0.1:8765/index.html?a=examples/hoist_step.csv&layout=examples/hoist_step.layout.json" 2>/dev/null)
+          echo "$dom" | grep -o 'hoist_step.csv · [0-9]* rows · [0-9]* columns' || { echo "FAIL: the trace did not load"; exit 1; }
+          echo "$dom" | grep -q 'class="message error"' && { echo "FAIL: the page shows an error"; exit 1; }
+          n=$(echo "$dom" | grep -o '<canvas' | wc -l)
+          [ "$n" -ge 5 ] || { echo "FAIL: expected plots, found $n canvases"; exit 1; }
+          echo "ok: $n canvases"

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>open-rig</title>
+<meta name="description" content="A viewer for open-tick traces: open one or two CSV files, plot them on a shared time axis and compare them. Everything runs in your browser; nothing is uploaded.">
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<link rel="stylesheet" href="src/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <h1>open-rig</h1>
+    <p class="lead">A viewer for <a href="https://github.com/Open-Heavy-Machinery/open-tick">open-tick</a> traces. Everything runs in your browser; no file leaves your computer.</p>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="loaders" aria-label="Open traces">
+    <label class="drop" id="drop-a">
+      <span class="drop-title">Trace A</span>
+      <span class="drop-hint" id="name-a">drop a .csv here or click to choose</span>
+      <input type="file" id="file-a" accept=".csv,text/csv,text/plain">
+    </label>
+    <label class="drop" id="drop-b">
+      <span class="drop-title">Trace B <small>(optional, drawn dashed)</small></span>
+      <span class="drop-hint" id="name-b">to compare with A, for example a board against the simulator</span>
+      <input type="file" id="file-b" accept=".csv,text/csv,text/plain">
+    </label>
+    <label class="drop" id="drop-l">
+      <span class="drop-title">Layout <small>(optional)</small></span>
+      <span class="drop-hint" id="name-l">a .json that says which columns go in which panel</span>
+      <input type="file" id="file-l" accept=".json,application/json">
+    </label>
+  </section>
+
+  <section class="toolbar" aria-label="Options">
+    <span class="examples">Examples:
+      <button type="button" id="ex-flywheel">flywheel</button>
+      <button type="button" id="ex-hoist">hoist step (open-crank)</button>
+      <button type="button" id="ex-compare">flywheel: two loads, compared</button>
+    </span>
+    <label class="offset" id="offset-wrap" hidden>B time offset
+      <input type="number" id="offset" value="0" step="0.001"> s
+    </label>
+    <button type="button" id="reset" hidden>Reset zoom</button>
+  </section>
+
+  <p id="message" role="status" aria-live="polite" class="message" hidden></p>
+
+  <section id="view" hidden>
+    <h2 class="sr-only">Plots</h2>
+    <p class="help">Wheel to zoom, drag to pan, double-click to reset. With the plots focused, use the arrow keys and + or −.</p>
+    <div id="panels" tabindex="0" aria-label="Plots on a shared time axis"></div>
+    <div id="compare-wrap" hidden>
+      <h2>A against B</h2>
+      <p class="help">B is read at A's times, with linear interpolation, where B has a value. Only columns that both traces have are compared.</p>
+      <div class="table-scroll"><table id="compare"></table></div>
+    </div>
+  </section>
+
+  <section class="about">
+    <h2>What this reads</h2>
+    <p>The CSV that open-tick writes: a header of column names, then one row per step, with no quotes. An empty cell is a gap. See <a href="https://github.com/Open-Heavy-Machinery/open-tick/blob/main/docs/trace-format.md">the trace format</a>. Without a layout, number columns are grouped by the unit their name ends in (<code>_rpm</code>, <code>_nm</code>, <code>_pct</code>, <code>_bar</code>, <code>_kpa</code>, <code>_c</code>), and text columns and 0/1 columns are drawn as state strips.</p>
+  </section>
+</main>
+
+<footer class="wrap foot">Part of <a href="https://open-heavy-machinery.github.io">Open Heavy Machinery</a> · Apache-2.0 · <a href="https://github.com/Open-Heavy-Machinery/open-rig">source</a></footer>
+
+<script src="src/trace.js"></script>
+<script src="src/viewer.js"></script>
+</body>
+</html>

@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "time": "t_s",
+  "panels": [
+    {
+      "title": "Engine speed",
+      "unit": "rpm",
+      "columns": [
+        "rpm",
+        "ecu_target_rpm",
+        "mc_target_rpm",
+        "mc_request_rpm"
+      ]
+    },
+    {
+      "title": "Torque",
+      "unit": "N·m",
+      "columns": [
+        "indicated_nm",
+        "brake_nm",
+        "load_nm"
+      ]
+    },
+    {
+      "title": "Hoist pump",
+      "unit": "bar / %",
+      "columns": [
+        "hoist_load_bar",
+        "pump_bar",
+        "pump_cmd_pct",
+        "pump_disp_pct",
+        "hoist_demand_pct"
+      ]
+    },
+    {
+      "title": "Fuel",
+      "unit": "%",
+      "columns": [
+        "fuel_pct"
+      ]
+    },
+    {
+      "title": "Turbo boost",
+      "unit": "fraction",
+      "columns": [
+        "boost_frac"
+      ]
+    },
+    {
+      "title": "Coolant",
+      "unit": "°C",
+      "columns": [
+        "coolant_c"
+      ]
+    },
+    {
+      "title": "Oil pressure",
+      "unit": "kPa",
+      "columns": [
+        "oil_kpa"
+      ]
+    }
+  ],
+  "states": [
+    "key_on",
+    "start",
+    "ecu_state",
+    "ecu_speed_source",
+    "mc_state",
+    "mc_fault",
+    "ecu_tripped",
+    "starter"
+  ]
+}
