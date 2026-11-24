@@ -4,6 +4,7 @@
  * the tests (tests/) both use them. The format is documented in open-tick,
  * docs/trace-format.md: a header line of column names, then one row per step,
  * comma-separated, no quotes; an empty cell means "no value in this row".
+ * Also the oracle's verdict files (open-tick docs/verdict-format.md): parseVerdicts.
  */
 (function (root) {
   'use strict';
@@ -250,10 +251,82 @@
     return { table: table, times: t.values, timeName: t.name };
   }
 
+  /* ------------------------------------------------------------ verdict files */
+
+  /*
+   * The oracle's verdicts, as open-tick writes them (open-tick docs/verdict-format.md, since v0.2.1):
+   * a header, then one row per criterion. Columns are found by name; `text` is the last column and
+   * takes the rest of the line, so it may contain commas. Times are seconds on the trace's axis.
+   */
+  var VERDICT_COLUMNS = ['id', 'verdict', 'status', 'from_s', 'until_s', 'event', 'event_s', 'reaction', 'reaction_ms', 'fail_s', 'text'];
+  var STATUSES = { ok: true, violated: true, not_evaluated: true, not_covered: true };
+  var REACTIONS = { '': true, measured: true, not_measured: true, not_holding: true };
+
+  function seconds(field, what, line, required) {
+    if (field === '') {
+      if (required) { throw { line: line, message: what + ' is empty' }; }
+      return null;
+    }
+    var v = Number(field);
+    if (!isFinite(v)) { throw { line: line, message: what + ' is not a number: "' + field + '"' }; }
+    return v;
+  }
+
+  /** Reads a verdict file into { criteria: [...], error: null } or { criteria: [], error: { line, message } }. Never throws. */
+  function parseVerdicts(text) {
+    var lines = String(text).replace(/^\uFEFF/, '').split('\n');
+    if (lines.length > 0 && lines[lines.length - 1] === '') { lines.pop(); }
+    lines = lines.map(function (l) { return l.replace(/\r$/, ''); });
+    if (lines.length === 0) { return { criteria: [], error: { line: 1, message: 'the file is empty' } }; }
+    var names = lines[0].split(',');
+    if (names[names.length - 1] !== 'text') {
+      return { criteria: [], error: { line: 1, message: 'not a verdict file: the last column must be "text"' } };
+    }
+    var at = {};
+    names.forEach(function (n, i) { at[n] = i; });
+    for (var k = 0; k < VERDICT_COLUMNS.length; k++) {
+      if (at[VERDICT_COLUMNS[k]] === undefined) {
+        return { criteria: [], error: { line: 1, message: 'not a verdict file: no column "' + VERDICT_COLUMNS[k] + '"' } };
+      }
+    }
+    var fixed = names.length - 1; /* fields before text */
+    var criteria = [];
+    try {
+      for (var i = 1; i < lines.length; i++) {
+        var line = i + 1;
+        var parts = lines[i].split(',');
+        if (parts.length < names.length) { throw { line: line, message: 'expected ' + names.length + ' fields' }; }
+        var f = parts.slice(0, fixed);
+        f.push(parts.slice(fixed).join(','));
+        var get = function (n) { return f[at[n]]; };
+        var c = {
+          id: get('id'), verdict: get('verdict'), status: get('status'),
+          from: seconds(get('from_s'), 'from_s', line, true), until: seconds(get('until_s'), 'until_s', line, true),
+          event: get('event'), eventT: seconds(get('event_s'), 'event_s', line, false),
+          reaction: get('reaction'), reactionMs: seconds(get('reaction_ms'), 'reaction_ms', line, false),
+          failT: seconds(get('fail_s'), 'fail_s', line, false), text: get('text')
+        };
+        if (c.id === '') { throw { line: line, message: 'empty id' }; }
+        if (c.verdict !== 'PASS' && c.verdict !== 'FAIL') { throw { line: line, message: 'verdict must be PASS or FAIL, not "' + c.verdict + '"' }; }
+        if (!STATUSES[c.status]) { throw { line: line, message: 'unknown status "' + c.status + '"' }; }
+        if (!REACTIONS[c.reaction]) { throw { line: line, message: 'unknown reaction "' + c.reaction + '"' }; }
+        if ((c.verdict === 'PASS') !== (c.status === 'ok')) { throw { line: line, message: 'verdict ' + c.verdict + ' with status ' + c.status }; }
+        if (c.until < c.from) { throw { line: line, message: 'until_s is before from_s' }; }
+        /* where the reaction ended, on the trace's axis */
+        c.reactionEnd = (c.reaction === 'measured' && c.eventT !== null && c.reactionMs !== null) ? c.eventT + c.reactionMs / 1000 : null;
+        criteria.push(c);
+      }
+    } catch (e) {
+      return { criteria: [], error: { line: e.line, message: e.message } };
+    }
+    if (criteria.length === 0) { return { criteria: [], error: { line: 1, message: 'the file has a header and no criteria' } }; }
+    return { criteria: criteria, error: null };
+  }
+
   var api = {
     parseCsv: parseCsv, toTable: toTable, column: column, timeColumn: timeColumn, valueAt: valueAt,
     indexAt: indexAt, unitOf: unitOf, isFlag: isFlag, defaultLayout: defaultLayout,
-    applyLayout: applyLayout, compare: compare, load: load, UNITS: UNITS
+    applyLayout: applyLayout, compare: compare, load: load, parseVerdicts: parseVerdicts, UNITS: UNITS
   };
   if (typeof module !== 'undefined' && module.exports) { module.exports = api; }
   root.RigTrace = api;

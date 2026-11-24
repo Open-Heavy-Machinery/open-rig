@@ -120,6 +120,53 @@
     near(d[0].max, 0, 'max');
   });
 
+  /* ------------------------------------------------------------ verdict files (open-tick docs/verdict-format.md) */
+
+  var VH = 'id,verdict,status,from_s,until_s,event,event_s,reaction,reaction_ms,fail_s,text\n';
+  /* open-tick's examples/flywheel/step.verdicts.csv (open-tick b75c484), and the strict F1 of examples/flywheel-strict.verdicts.csv */
+  var FLYWHEEL_VERDICTS = VH +
+    'D1,PASS,ok,0.000000,5.000000,,,,,,duty never above 100 %\n' +
+    'R1,PASS,ok,1.000000,4.000000,,,,,,drives while its speed feedback is fresh\n' +
+    'F1,PASS,ok,4.200000,5.000000,fault.speed_lost=1,4.000000,measured,110,,no drive within 200 ms of losing the speed frames\n';
+
+  test('reads the verdict file open-tick writes', function () {
+    var v = T.parseVerdicts(FLYWHEEL_VERDICTS);
+    eq(v.error, null, 'error');
+    eq(v.criteria.map(function (c) { return c.id; }), ['D1', 'R1', 'F1'], 'ids, in file order');
+    var f1 = v.criteria[2];
+    eq([f1.verdict, f1.status, f1.from, f1.until, f1.event, f1.eventT, f1.reaction, f1.reactionMs, f1.failT],
+      ['PASS', 'ok', 4.2, 5, 'fault.speed_lost=1', 4, 'measured', 110, null], 'F1 fields');
+    near(f1.reactionEnd, 4.11, 'reaction end on the trace axis');
+    eq([v.criteria[0].event, v.criteria[0].eventT, v.criteria[0].reaction, v.criteria[0].reactionEnd], ['', null, '', null], 'no event');
+  });
+  test('a failed criterion: violated, with its first violation; not_holding has no reaction time', function () {
+    var v = T.parseVerdicts(VH + 'F1,FAIL,violated,4.100000,5.000000,fault.speed_lost=1,4.000000,not_holding,,4.100000,no drive within 100 ms\n');
+    eq(v.error, null, 'error');
+    eq([v.criteria[0].status, v.criteria[0].failT, v.criteria[0].reactionMs, v.criteria[0].reactionEnd], ['violated', 4.1, null, null], 'fields');
+  });
+  test('text is the rest of the line, commas included; fractional reactions; CRLF and a BOM', function () {
+    var v = T.parseVerdicts('\uFEFF' + (VH + 'R,PASS,ok,0.150500,1.000000,go=1,0.100500,measured,9.500000,,a, b, c\n').replace(/\n/g, '\r\n'));
+    eq(v.error, null, 'error');
+    eq(v.criteria[0].text, 'a, b, c', 'text');
+    near(v.criteria[0].reactionEnd, 0.11, 'reaction end');
+  });
+  test('columns are found by name: one added before text does not break the reader', function () {
+    var v = T.parseVerdicts('id,verdict,status,from_s,until_s,event,event_s,reaction,reaction_ms,fail_s,future,text\n' +
+      'X,FAIL,not_covered,0.000000,1.000000,,,,,,42,t, with comma\n');
+    eq(v.error, null, 'error');
+    eq([v.criteria[0].status, v.criteria[0].text], ['not_covered', 't, with comma'], 'fields');
+  });
+  test('rejects what is not a verdict file, and names the line', function () {
+    eq(/last column must be "text"/.test(T.parseVerdicts('t_s,rpm\n0,1\n').error.message), true, 'a trace');
+    eq(/no column "status"/.test(T.parseVerdicts('id,verdict,from_s,until_s,event,event_s,reaction,reaction_ms,fail_s,text\n').error.message), true, 'missing column');
+    eq(T.parseVerdicts(VH).error.message, 'the file has a header and no criteria', 'no rows');
+    eq(T.parseVerdicts(VH + 'X,MAYBE,ok,0,1,,,,,,t\n').error.line, 2, 'bad verdict');
+    eq(T.parseVerdicts(VH + 'X,PASS,ok,0,1,,,,,,t\nY,FAIL,broken,0,1,,,,,,t\n').error.line, 3, 'bad status');
+    eq(T.parseVerdicts(VH + 'X,PASS,violated,0,1,,,,,,t\n').error.line, 2, 'PASS that is not ok');
+    eq(T.parseVerdicts(VH + 'X,PASS,ok,x,1,,,,,,t\n').error.line, 2, 'bad number');
+    eq(T.parseVerdicts(VH + 'X,PASS,ok,0,1\n').error.line, 2, 'short row');
+  });
+
   root.RIG_TEST_RESULTS = results;
   if (typeof document !== 'undefined') {
     var failed = results.filter(function (r) { return !r.ok; });

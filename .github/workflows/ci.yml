@@ -38,3 +38,16 @@ jobs:
           n=$(echo "$dom" | grep -o '<canvas' | wc -l)
           [ "$n" -ge 5 ] || { echo "FAIL: expected plots, found $n canvases"; exit 1; }
           echo "ok: $n canvases"
+      - name: Serve and load the flywheel with a verdict file, one criterion failing and selected
+        run: |
+          python3 -m http.server 8766 --bind 127.0.0.1 >/dev/null 2>&1 &
+          sleep 1
+          dom=$(google-chrome --headless=new --no-sandbox --disable-gpu --virtual-time-budget=5000 --dump-dom \
+            "http://127.0.0.1:8766/index.html?a=examples/flywheel.csv&verdicts=examples/flywheel-strict.verdicts.csv&criterion=F1" 2>/dev/null)
+          echo "$dom" | grep -o 'flywheel-strict.verdicts.csv · 3 criteria · 1 FAIL' || { echo "FAIL: the verdicts did not load"; exit 1; }
+          echo "$dom" | grep -q 'class="message error"' && { echo "FAIL: the page shows an error"; exit 1; }
+          [ "$(echo "$dom" | grep -o 'class="crit pass"' | wc -l)" -eq 2 ] || { echo "FAIL: expected 2 passing criteria"; exit 1; }
+          echo "$dom" | grep -q '<li class="crit fail"><button type="button" aria-pressed="true"' || { echo "FAIL: F1 is not listed as failed and selected"; exit 1; }
+          n=$(echo "$dom" | grep -o '<canvas' | wc -l)
+          [ "$n" -ge 5 ] || { echo "FAIL: expected the criteria strip and plots, found $n canvases"; exit 1; }
+          echo "ok: 3 criteria, F1 failed and selected, $n canvases"

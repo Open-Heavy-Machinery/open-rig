@@ -36,7 +36,7 @@ h2 { font-size: 1.1rem; margin: 24px 0 8px; }
 .lead { margin: 4px 0 0; color: var(--muted); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-.loaders { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0 12px; }
+.loaders { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 20px 0 12px; }
 .drop { position: relative; display: flex; flex-direction: column; gap: 4px; padding: 14px; background: var(--surface);
   border: 1px dashed var(--border); border-radius: 8px; cursor: pointer; min-height: 84px; }
 .drop:hover, .drop.over { border-color: var(--accent); }
@@ -75,4 +75,14 @@ th { color: var(--muted); font-weight: 600; }
 .about p { color: var(--muted); max-width: 70ch; }
 .foot { padding-top: 24px; padding-bottom: 32px; color: var(--muted); font-size: 0.875rem; }
 
+.crits { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.crits button { width: 100%; text-align: left; display: flex; gap: 10px; align-items: baseline; padding: 4px 10px; font-size: 0.875rem; }
+.crits button[aria-pressed="true"] { border-color: var(--focus); box-shadow: inset 3px 0 0 var(--focus); }
+.crits .mark { font-family: var(--mono); font-weight: 600; min-width: 5.5em; }
+.crits .pass .mark { color: #2da44e; }
+.crits .fail .mark { color: #cf222e; }
+.crits .what { flex: 1; }
+.crits .detail { color: var(--muted); font-family: var(--mono); font-size: 0.8rem; }
+
+@media (max-width: 960px) { .loaders { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 720px) { .loaders { grid-template-columns: 1fr; } }

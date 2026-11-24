@@ -1,15 +1,18 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-/* The page: loads traces, draws them on a shared time axis, compares two. See trace.js for the format. */
+/* The page: loads traces, draws them on a shared time axis, compares two, and draws the oracle's verdicts. See trace.js for the formats. */
 (function () {
   'use strict';
   var T = window.RigTrace;
   var PALETTE = ['#e06c24', '#3987e5', '#2da44e', '#bf3989', '#8250df', '#b08800', '#1b9aaa', '#cf222e'];
   var PLOT_H = 170;
   var STRIP_H = 20;
+  var CRIT_H = 18;
+  var PASS_COLOR = '#2da44e';
+  var FAIL_COLOR = '#cf222e';
   var M = { left: 64, right: 12, top: 8, bottom: 20 };
 
   var state = {
-    a: null, b: null, layoutRaw: null,
+    a: null, b: null, layoutRaw: null, verdicts: null, verdictsName: '', selected: null, crit: null,
     layout: null, hidden: {}, view: null, full: null, cursor: null, offsetB: 0, plots: [], strips: null
   };
 
@@ -59,11 +62,32 @@
     return true;
   }
 
+  function setVerdicts(text, name) {
+    var parsed = T.parseVerdicts(text);
+    if (parsed.error) {
+      message(name + ': line ' + parsed.error.line + ': ' + parsed.error.message, true);
+      return false;
+    }
+    state.verdicts = parsed.criteria;
+    state.verdictsName = name;
+    state.selected = null;
+    var failed = parsed.criteria.filter(function (c) { return c.verdict === 'FAIL'; }).length;
+    $('name-v').textContent = name + ' · ' + parsed.criteria.length + ' criteria · ' + (failed ? failed + ' FAIL' : 'all PASS');
+    $('drop-v').classList.add('loaded');
+    return true;
+  }
+
+  function setSlot(slot, text, name) {
+    if (slot === 'l') { return setLayout(text, name); }
+    if (slot === 'v') { return setVerdicts(text, name); }
+    return setTrace(slot, text, name);
+  }
+
   function loadFiles(slot, files) {
     if (!files || files.length === 0) { return; }
     var file = files[0];
     readFile(file).then(function (text) {
-      var ok = slot === 'l' ? setLayout(text, file.name) : setTrace(slot, text, file.name);
+      var ok = setSlot(slot, text, file.name);
       if (ok) { message(''); rebuild(); }
     }).catch(function (e) { message(e.message, true); });
   }
@@ -77,11 +101,11 @@
 
   function loadUrls(spec) {
     var jobs = [];
-    ['a', 'b', 'l'].forEach(function (slot) {
+    ['a', 'b', 'l', 'v'].forEach(function (slot) {
       if (!spec[slot]) { return; }
       var name = spec[slot].split('/').pop();
       jobs.push(fetchText(spec[slot]).then(function (text) {
-        return slot === 'l' ? setLayout(text, name) : setTrace(slot, text, name);
+        return setSlot(slot, text, name);
       }));
     });
     return Promise.all(jobs).then(function (results) {
@@ -94,11 +118,12 @@
   }
 
   function clearAll() {
-    state.a = null; state.b = null; state.layoutRaw = null;
-    ['a', 'b', 'l'].forEach(function (s) { $('drop-' + s).classList.remove('loaded'); });
+    state.a = null; state.b = null; state.layoutRaw = null; state.verdicts = null; state.selected = null;
+    ['a', 'b', 'l', 'v'].forEach(function (s) { $('drop-' + s).classList.remove('loaded'); });
     $('name-a').textContent = 'drop a .csv here or click to choose';
     $('name-b').textContent = 'to compare with A, for example a board against the simulator';
     $('name-l').textContent = 'a .json that says which columns go in which panel';
+    $('name-v').textContent = 'the oracle\'s .verdicts.csv for trace A: windows, reactions and failures over the plots';
   }
 
   /* ------------------------------------------------------------ model */
@@ -170,12 +195,170 @@
     var host = $('panels');
     host.textContent = '';
     state.plots = [];
+    state.crit = null;
+    if (state.verdicts) { host.appendChild(buildCriteria()); }
     state.layout.panels.forEach(function (p, i) { host.appendChild(buildPanel(p, i)); });
     if (state.layout.states.length > 0) { host.appendChild(buildStrips()); }
     buildCompare();
+    buildVerdictList();
     if (warnings.length > 0) { message('Layout: ' + warnings.join('; '), false); }
     draw();
   }
+
+  /* ------------------------------------------------------------ verdicts */
+
+  function buildCriteria() {
+    var box = document.createElement('div');
+    box.className = 'panel';
+    var h = document.createElement('h3');
+    h.textContent = 'Criteria (' + state.verdictsName + ')';
+    box.appendChild(h);
+    var c = document.createElement('canvas');
+    c.setAttribute('role', 'img');
+    c.setAttribute('aria-label', 'Acceptance criteria windows: ' + state.verdicts.map(function (v) { return v.id + ' ' + v.verdict; }).join(', '));
+    attachPointer(c);
+    box.appendChild(c);
+    state.crit = { canvas: c };
+    return box;
+  }
+
+  function describe(c) {
+    var parts = ['[' + c.from.toFixed(2) + ' s .. ' + c.until.toFixed(2) + ' s]'];
+    if (c.reaction === 'measured') { parts.push('reaction ' + c.reactionMs + ' ms after ' + c.event); }
+    else if (c.reaction === 'not_holding') { parts.push('not holding at ' + c.from.toFixed(2) + ' s'); }
+    else if (c.reaction === 'not_measured') { parts.push('reaction not measured'); }
+    if (c.status === 'violated') { parts.push('first violation at ' + c.failT.toFixed(2) + ' s'); }
+    else if (c.status === 'not_evaluated') { parts.push('not evaluated: no step in the window'); }
+    else if (c.status === 'not_covered') { parts.push('the run ended before the window did'); }
+    return parts.join(' · ');
+  }
+
+  function buildVerdictList() {
+    var wrap = $('verdicts-wrap');
+    var list = $('verdict-list');
+    list.textContent = '';
+    if (!state.verdicts) { wrap.hidden = true; return; }
+    state.verdicts.forEach(function (c, i) {
+      var li = document.createElement('li');
+      li.className = 'crit ' + (c.verdict === 'PASS' ? 'pass' : 'fail');
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.setAttribute('aria-pressed', 'false');
+      var mark = document.createElement('span');
+      mark.className = 'mark';
+      mark.textContent = (c.verdict === 'PASS' ? '✓ ' : '✗ ') + c.id;
+      var what = document.createElement('span');
+      what.className = 'what';
+      what.textContent = c.text;
+      var detail = document.createElement('span');
+      detail.className = 'detail';
+      detail.textContent = describe(c);
+      btn.appendChild(mark); btn.appendChild(what); btn.appendChild(detail);
+      btn.addEventListener('click', function () { select(state.selected === i ? null : i); });
+      li.appendChild(btn);
+      list.appendChild(li);
+    });
+    wrap.hidden = false;
+  }
+
+  /* Selects criterion i (or none): zooms to its window, with its event, and draws it over the plots. */
+  function select(i) {
+    state.selected = i;
+    Array.prototype.forEach.call($('verdict-list').querySelectorAll('button'), function (b, j) {
+      b.setAttribute('aria-pressed', state.selected === j ? 'true' : 'false');
+    });
+    if (i !== null) {
+      var c = state.verdicts[i];
+      var lo = c.eventT === null ? c.from : Math.min(c.from, c.eventT);
+      var span = Math.max(c.until - lo, (state.full[1] - state.full[0]) / 100);
+      clampView(lo - span * 0.15, c.until + span * 0.15);
+    }
+    draw();
+  }
+
+  function selectById(id) {
+    if (!state.verdicts || !state.a) { return; }
+    for (var i = 0; i < state.verdicts.length; i++) {
+      if (state.verdicts[i].id === id) { select(i); return; }
+    }
+    message('No criterion "' + id + '" in ' + state.verdictsName, true);
+  }
+
+  /* The marks of one criterion in a band from `top` to `bottom`: ▼ event, ● end of the reaction, ✕ first violation. */
+  function drawMarks(ctx, c, w, top, bottom) {
+    var mid = (top + bottom) / 2;
+    if (c.eventT !== null && c.eventT >= state.view[0] && c.eventT <= state.view[1]) {
+      var xe = xOf(c.eventT, w);
+      ctx.fillStyle = css('--text');
+      ctx.beginPath(); ctx.moveTo(xe - 5, top); ctx.lineTo(xe + 5, top); ctx.lineTo(xe, top + 7); ctx.closePath(); ctx.fill();
+    }
+    if (c.reactionEnd !== null && c.reactionEnd >= state.view[0] && c.reactionEnd <= state.view[1]) {
+      ctx.fillStyle = PASS_COLOR;
+      ctx.beginPath(); ctx.arc(xOf(c.reactionEnd, w), mid, 4, 0, 2 * Math.PI); ctx.fill();
+    }
+    if (c.failT !== null && c.failT >= state.view[0] && c.failT <= state.view[1]) {
+      var xf = xOf(c.failT, w);
+      ctx.strokeStyle = FAIL_COLOR;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(xf - 4, mid - 4); ctx.lineTo(xf + 4, mid + 4); ctx.moveTo(xf + 4, mid - 4); ctx.lineTo(xf - 4, mid + 4); ctx.stroke();
+    }
+  }
+
+  function drawCriteria() {
+    var list = state.verdicts;
+    var h = M.top + list.length * (CRIT_H + 6) + M.bottom;
+    var g = setupCanvas(state.crit.canvas, h);
+    var ctx = g.ctx;
+    drawAxes(ctx, g.w, g.h, 0, 1, false);
+    ctx.font = '11px ' + css('--mono');
+    list.forEach(function (c, i) {
+      var y = M.top + i * (CRIT_H + 6);
+      ctx.fillStyle = c.verdict === 'PASS' ? PASS_COLOR : FAIL_COLOR;
+      ctx.textAlign = 'right';
+      ctx.fillText(c.id, M.left - 6, y + CRIT_H - 5);
+      var x0 = Math.max(M.left, xOf(c.from, g.w));
+      var x1 = Math.min(g.w - M.right, xOf(c.until, g.w));
+      if (x1 >= x0) {
+        ctx.globalAlpha = state.selected === null || state.selected === i ? 0.35 : 0.15;
+        ctx.fillRect(x0, y, Math.max(1, x1 - x0), CRIT_H);
+        ctx.globalAlpha = 1;
+        if (state.selected === i) {
+          ctx.strokeStyle = css('--focus');
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x0, y, Math.max(1, x1 - x0), CRIT_H);
+        }
+      }
+      drawMarks(ctx, c, g.w, y, y + CRIT_H);
+    });
+    drawCursor(ctx, g.w, g.h);
+    state.crit.w = g.w;
+  }
+
+  /* The selected criterion over a plot: its window shaded, and lines at its event, reaction end and first violation. */
+  function drawSelectedOver(ctx, w, h) {
+    if (!state.verdicts || state.selected === null) { return; }
+    var c = state.verdicts[state.selected];
+    var top = M.top;
+    var bottom = h - M.bottom;
+    var x0 = Math.max(M.left, xOf(c.from, w));
+    var x1 = Math.min(w - M.right, xOf(c.until, w));
+    if (x1 >= x0) {
+      ctx.fillStyle = c.verdict === 'PASS' ? PASS_COLOR : FAIL_COLOR;
+      ctx.globalAlpha = 0.1;
+      ctx.fillRect(x0, top, Math.max(1, x1 - x0), bottom - top);
+      ctx.globalAlpha = 1;
+    }
+    [[c.eventT, css('--muted')], [c.reactionEnd, PASS_COLOR], [c.failT, FAIL_COLOR]].forEach(function (m) {
+      if (m[0] === null || m[0] < state.view[0] || m[0] > state.view[1]) { return; }
+      var x = Math.round(xOf(m[0], w)) + 0.5;
+      ctx.strokeStyle = m[1];
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bottom); ctx.stroke();
+      ctx.setLineDash([]);
+    });
+  }
+
 
   function buildPanel(p, index) {
     var box = document.createElement('div');
@@ -413,6 +596,7 @@
     var g = setupCanvas(plot.canvas, PLOT_H);
     var r = rangeOf(plot);
     drawAxes(g.ctx, g.w, g.h, r[0], r[1], true);
+    drawSelectedOver(g.ctx, g.w, g.h);
     plot.panel.columns.forEach(function (name) {
       if (state.hidden[name]) { return; }
       seriesOf(plot, name).forEach(function (s) { drawSeries(g.ctx, s, colorOf(name), g.w, g.h, r[0], r[1]); });
@@ -495,6 +679,7 @@
   function draw() {
     if (!state.a) { return; }
     state.bShift = state.b ? bTimes() : null;
+    if (state.crit) { drawCriteria(); }
     state.plots.forEach(drawPlot);
     if (state.strips) { drawStrips(); }
     updateReadouts();
@@ -571,7 +756,7 @@
   /* ------------------------------------------------------------ wiring */
 
   function wire() {
-    ['a', 'b', 'l'].forEach(function (slot) {
+    ['a', 'b', 'l', 'v'].forEach(function (slot) {
       $('file-' + slot).addEventListener('change', function (ev) { loadFiles(slot, ev.target.files); ev.target.value = ''; });
       var zone = $('drop-' + slot);
       zone.addEventListener('dragover', function (ev) { ev.preventDefault(); zone.classList.add('over'); });
@@ -581,12 +766,12 @@
         loadFiles(slot, ev.dataTransfer.files);
       });
     });
-    /* a file dropped anywhere else goes to A, or to the layout if it is JSON */
+    /* a file dropped anywhere else goes to A (then B), to the layout if it is JSON, to the verdicts if it ends in verdicts.csv */
     document.addEventListener('dragover', function (ev) { ev.preventDefault(); });
     document.addEventListener('drop', function (ev) {
       ev.preventDefault();
       var f = ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files[0];
-      if (f) { loadFiles(/\.json$/i.test(f.name) ? 'l' : (state.a ? 'b' : 'a'), [f]); }
+      if (f) { loadFiles(/\.json$/i.test(f.name) ? 'l' : /verdicts\.csv$/i.test(f.name) ? 'v' : (state.a ? 'b' : 'a'), [f]); }
     });
     $('offset').addEventListener('input', function (ev) {
       var v = Number(ev.target.value);
@@ -608,10 +793,14 @@
     $('ex-flywheel').addEventListener('click', example({ a: 'examples/flywheel.csv' }));
     $('ex-hoist').addEventListener('click', example({ a: 'examples/hoist_step.csv', l: 'examples/hoist_step.layout.json' }));
     $('ex-compare').addEventListener('click', example({ a: 'examples/flywheel.csv', b: 'examples/flywheel-heavier-load.csv' }));
+    $('ex-graded').addEventListener('click', example({ a: 'examples/flywheel.csv', v: 'examples/flywheel.verdicts.csv' }));
+    $('ex-failing').addEventListener('click', example({ a: 'examples/flywheel.csv', v: 'examples/flywheel-strict.verdicts.csv' }));
 
     var q = new URLSearchParams(location.search);
-    if (q.get('a') || q.get('b') || q.get('layout')) {
-      loadUrls({ a: q.get('a'), b: q.get('b'), l: q.get('layout') });
+    if (q.get('a') || q.get('b') || q.get('layout') || q.get('verdicts')) {
+      loadUrls({ a: q.get('a'), b: q.get('b'), l: q.get('layout'), v: q.get('verdicts') }).then(function () {
+        if (q.get('criterion')) { selectById(q.get('criterion')); }
+      });
     }
   }
 

@@ -28,6 +28,11 @@
       <span class="drop-hint" id="name-b">to compare with A, for example a board against the simulator</span>
       <input type="file" id="file-b" accept=".csv,text/csv,text/plain">
     </label>
+    <label class="drop" id="drop-v">
+      <span class="drop-title">Verdicts <small>(optional)</small></span>
+      <span class="drop-hint" id="name-v">the oracle's .verdicts.csv for trace A: windows, reactions and failures over the plots</span>
+      <input type="file" id="file-v" accept=".csv,text/csv,text/plain">
+    </label>
     <label class="drop" id="drop-l">
       <span class="drop-title">Layout <small>(optional)</small></span>
       <span class="drop-hint" id="name-l">a .json that says which columns go in which panel</span>
@@ -40,6 +45,8 @@
       <button type="button" id="ex-flywheel">flywheel</button>
       <button type="button" id="ex-hoist">hoist step (open-crank)</button>
       <button type="button" id="ex-compare">flywheel: two loads, compared</button>
+      <button type="button" id="ex-graded">flywheel, graded by the oracle</button>
+      <button type="button" id="ex-failing">flywheel, a criterion that fails</button>
     </span>
     <label class="offset" id="offset-wrap" hidden>B time offset
       <input type="number" id="offset" value="0" step="0.001"> s
@@ -52,6 +59,11 @@
   <section id="view" hidden>
     <h2 class="sr-only">Plots</h2>
     <p class="help">Wheel to zoom, drag to pan, double-click to reset. With the plots focused, use the arrow keys and + or −.</p>
+    <div id="verdicts-wrap" hidden>
+      <h2>Acceptance criteria</h2>
+      <p class="help">Each window is shaded green if the criterion passed and red if it failed. ▼ marks the event a reaction is timed from, ● where the reaction ended, ✕ the first violation. Choose a criterion to zoom to its window and draw it over the plots.</p>
+      <ul id="verdict-list" class="crits"></ul>
+    </div>
     <div id="panels" tabindex="0" aria-label="Plots on a shared time axis"></div>
     <div id="compare-wrap" hidden>
       <h2>A against B</h2>
@@ -63,6 +75,7 @@
   <section class="about">
     <h2>What this reads</h2>
     <p>The CSV that open-tick writes: a header of column names, then one row per step, with no quotes. An empty cell is a gap. See <a href="https://github.com/Open-Heavy-Machinery/open-tick/blob/main/docs/trace-format.md">the trace format</a>. Without a layout, number columns are grouped by the unit their name ends in (<code>_rpm</code>, <code>_nm</code>, <code>_pct</code>, <code>_bar</code>, <code>_kpa</code>, <code>_c</code>), and text columns and 0/1 columns are drawn as state strips.</p>
+    <p>A verdict file, written by open-tick's acceptance oracle, says for each criterion whether it passed, its time window, the event a reaction is timed from, where the reaction ended and where the criterion first failed. See <a href="https://github.com/Open-Heavy-Machinery/open-tick/blob/main/docs/verdict-format.md">the verdict format</a>.</p>
   </section>
 </main>
 
