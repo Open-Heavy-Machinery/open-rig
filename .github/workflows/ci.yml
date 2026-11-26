@@ -66,6 +66,23 @@ jobs:
           n=$(echo "$dom" | grep -o '<canvas' | wc -l)
           [ "$n" -ge 6 ] || { echo "FAIL: expected the criteria strip, the bus and plots, found $n canvases"; exit 1; }
           echo "ok: frame 2837 decoded, checksum flagged, $n canvases"
+      - name: Serve and load a DM1 over BAM, reassembled with open-crank.dbc
+        run: |
+          python3 -m http.server 8769 --bind 127.0.0.1 >/dev/null 2>&1 &
+          sleep 1
+          dom=$(google-chrome --headless=new --no-sandbox --disable-gpu --virtual-time-budget=8000 --dump-dom \
+            "http://127.0.0.1:8769/index.html?a=examples/engine_dtc_red_and_amber.csv&layout=examples/hoist_step.layout.json&verdicts=examples/engine_dtc_red_and_amber.verdicts.csv&frames=examples/engine_dtc_red_and_amber.frames.csv&dbc=examples/open-crank.dbc&frame=2874" 2>/dev/null)
+          echo "$dom" | grep -o 'engine_dtc_red_and_amber.frames.csv · 4968 frames · bus_clock=sim' || { echo "FAIL: the frame log did not load"; exit 1; }
+          echo "$dom" | grep -o 'engine_dtc_red_and_amber.verdicts.csv · 6 criteria · all PASS' || { echo "FAIL: the verdicts did not load"; exit 1; }
+          echo "$dom" | grep -q 'class="message error"' && { echo "FAIL: the page shows an error"; exit 1; }
+          echo "$dom" | grep -q '<h4>Frame (line 2874 of engine_dtc_red_and_amber.frames.csv)</h4>' || { echo "FAIL: frame 2874 is not selected"; exit 1; }
+          echo "$dom" | grep -q '<td>carries</td><td>PGN 65226 (0xFECA), 10 bytes in 2 packets</td></tr><tr><td>state</td><td>complete</td>' || { echo "FAIL: the BAM is not complete"; exit 1; }
+          echo "$dom" | grep -q '<td>lamps</td><td>red stop on, amber warning on, MIL off, protect off</td>' || { echo "FAIL: the DM1's lamps"; exit 1; }
+          echo "$dom" | grep -q '<td>code 1</td><td>SPN 100, FMI 1 (below normal, most severe), occurrences 1</td>' || { echo "FAIL: the first trouble code"; exit 1; }
+          echo "$dom" | grep -q '<td>code 2</td><td>SPN 110, FMI 16 (above normal, moderately severe), occurrences 1</td>' || { echo "FAIL: the second trouble code"; exit 1; }
+          n=$(echo "$dom" | grep -o '<canvas' | wc -l)
+          [ "$n" -ge 6 ] || { echo "FAIL: expected the criteria strip, the bus and plots, found $n canvases"; exit 1; }
+          echo "ok: frame 2874, the DM1 reassembled with two codes, $n canvases"
       - name: Serve and load a frame log alone (no trace, no dictionary)
         run: |
           python3 -m http.server 8768 --bind 127.0.0.1 >/dev/null 2>&1 &

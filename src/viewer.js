@@ -1241,6 +1241,10 @@
       a: 'examples/speed_command_corrupt.csv', l: 'examples/hoist_step.layout.json', v: 'examples/speed_command_corrupt.verdicts.csv',
       f: 'examples/speed_command_corrupt.frames.csv', d: 'examples/open-crank.dbc'
     }));
+    $('ex-dtc').addEventListener('click', example({
+      a: 'examples/engine_dtc_red_and_amber.csv', l: 'examples/hoist_step.layout.json', v: 'examples/engine_dtc_red_and_amber.verdicts.csv',
+      f: 'examples/engine_dtc_red_and_amber.frames.csv', d: 'examples/open-crank.dbc'
+    }));
 
     var q = new URLSearchParams(location.search);
     if (q.get('a') || q.get('b') || q.get('layout') || q.get('verdicts') || q.get('frames')) {
