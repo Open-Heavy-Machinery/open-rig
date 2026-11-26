@@ -1,0 +1,120 @@
+VERSION ""
+
+NS_ :
+	CM_
+	BA_DEF_
+	BA_
+	VAL_
+	BA_DEF_DEF_
+
+BS_:
+
+BU_: Engine MachineController Bench
+
+BO_ 2348810279 TSC1: 8 MachineController
+ SG_ OverrideControlMode : 0|2@1+ (1,0) [0|3] "" Engine
+ SG_ RequestedSpeedControlConditions : 2|2@1+ (1,0) [0|3] "" Engine
+ SG_ OverrideControlModePriority : 4|2@1+ (1,0) [0|3] "" Engine
+ SG_ RequestedSpeed : 8|16@1+ (0.125,0) [0|8031.875] "rpm" Engine
+ SG_ RequestedTorque : 24|8@1+ (1,-125) [-125|125] "%" Engine
+ SG_ MessageCounter : 56|4@1+ (1,0) [0|15] "" Engine
+ SG_ MessageChecksum : 60|4@1+ (1,0) [0|15] "" Engine
+
+BO_ 2364539904 EEC1: 8 Engine
+ SG_ EngineTorqueMode : 0|4@1+ (1,0) [0|15] "" MachineController
+ SG_ DriversDemandEngineTorque : 8|8@1+ (1,-125) [-125|125] "%" MachineController
+ SG_ ActualEngineTorque : 16|8@1+ (1,-125) [-125|125] "%" MachineController
+ SG_ EngineSpeed : 24|16@1+ (0.125,0) [0|8031.875] "rpm" MachineController
+ SG_ SourceAddressOfControllingDevice : 40|8@1+ (1,0) [0|255] "" MachineController
+
+BO_ 2566843904 ET1: 8 Engine
+ SG_ EngineCoolantTemperature : 0|8@1+ (1,-40) [-40|210] "degC" MachineController
+
+BO_ 2566844160 EFLP1: 8 Engine
+ SG_ EngineOilPressure : 24|8@1+ (4,0) [0|1000] "kPa" MachineController
+
+BO_ 2566834688 DM1: 8 Engine
+ SG_ ProtectLampStatus : 0|2@1+ (1,0) [0|3] "" MachineController
+ SG_ AmberWarningLampStatus : 2|2@1+ (1,0) [0|3] "" MachineController
+ SG_ RedStopLampStatus : 4|2@1+ (1,0) [0|3] "" MachineController
+ SG_ MalfunctionIndicatorLampStatus : 6|2@1+ (1,0) [0|3] "" MachineController
+ SG_ DTC1_SPN_Low : 16|16@1+ (1,0) [0|65535] "" MachineController
+ SG_ DTC1_FMI : 32|5@1+ (1,0) [0|31] "" MachineController
+ SG_ DTC1_SPN_High : 37|3@1+ (1,0) [0|7] "" MachineController
+ SG_ DTC1_OccurrenceCount : 40|7@1+ (1,0) [0|127] "" MachineController
+ SG_ DTC1_ConversionMethod : 47|1@1+ (1,0) [0|1] "" MachineController
+
+BO_ 2565668608 TP_CM_BAM: 8 Engine
+ SG_ ControlByte : 0|8@1+ (1,0) [0|255] "" MachineController
+ SG_ TotalMessageSize : 8|16@1+ (1,0) [0|1785] "byte" MachineController
+ SG_ TotalNumberOfPackets : 24|8@1+ (1,0) [0|255] "" MachineController
+ SG_ Reserved : 32|8@1+ (1,0) [0|255] "" MachineController
+ SG_ PGNOfPacketedMessage : 40|24@1+ (1,0) [0|262143] "" MachineController
+
+BO_ 2565603072 TP_DT: 8 Engine
+ SG_ SequenceNumber : 0|8@1+ (1,0) [1|255] "" MachineController
+ SG_ PacketData : 8|56@1+ (1,0) [0|72057594037927935] "" MachineController
+
+BO_ 2566856956 OC_OPERATOR: 8 Bench
+ SG_ TargetEngineSpeed : 0|16@1+ (0.125,0) [0|8031.875] "rpm" MachineController
+ SG_ HoistLever : 16|8@1+ (0.4,0) [0|100] "%" MachineController
+ SG_ FaultResetButton : 24|2@1+ (1,0) [0|3] "" MachineController
+
+BO_ 2365530407 OC_PUMP_CMD: 8 MachineController
+ SG_ PumpDisplacementCommand : 0|8@1+ (0.4,0) [0|100] "%" Bench
+
+BO_ 2566860540 BENCH_ECHO_REQUEST: 8 Bench
+ SG_ Sequence : 0|32@1+ (1,0) [0|4294967295] "" MachineController
+
+BO_ 2566860583 BENCH_ECHO: 8 MachineController
+ SG_ Sequence : 0|32@1+ (1,0) [0|4294967295] "" Bench
+
+BO_ 2566860284 BENCH_HANG_TEST: 8 Bench
+
+CM_ "open-crank bus contract, Level 1 (docs/bus-interface.md), in machine-readable form. The document is the contract; this file must agree with it (tests/dbc_vectors.c, tools/check_dbc.py). Identifiers carry the nominal source addresses: engine 0x00, machine controller 0x27, bench 0xFC.";
+CM_ BO_ 2348810279 "Torque/Speed Control 1, PGN 0, to the engine (0x00), every 10 ms while overriding. Byte 7: counter (SPN 4206) and checksum (SPN 4207, J1939-71), required since v0.3.1.";
+CM_ BO_ 2364539904 "Electronic Engine Controller 1, PGN 61444, broadcast, every 10 ms.";
+CM_ BO_ 2566843904 "Engine Temperature 1, PGN 65262, every 1000 ms.";
+CM_ BO_ 2566844160 "Engine Fluid Level/Pressure 1, PGN 65263, every 500 ms.";
+CM_ BO_ 2566834688 "Active diagnostic trouble codes, PGN 65226, every 1000 ms and at once on a change. This is the single-frame layout (lamps and the first DTC). With two codes or more DM1 is longer than 8 bytes and travels as a BAM (TP_CM_BAM, TP_DT): a J1939 reader reassembles it.";
+CM_ BO_ 2565668608 "Transport protocol connection management, PGN 60416, to global: the BAM that announces a DM1 longer than 8 bytes.";
+CM_ BO_ 2565603072 "Transport protocol data transfer, PGN 60160, to global: the BAM's packets, 50 ms apart, 7 bytes each, the last padded with 0xFF.";
+CM_ BO_ 2566856956 "open-crank operator controls (not SAE J1939), PGN 0xFF20, from the bench (0xFC), every 20 ms.";
+CM_ BO_ 2365530407 "open-crank hoist pump displacement command (not SAE J1939), PGN 0xFF21, from the controller, every 10 ms.";
+CM_ BO_ 2566860540 "Bench only, not part of the bus contract: latency echo request (contract 8, tools/can_rtt.py). Bytes 0-3: a sequence number.";
+CM_ BO_ 2566860583 "Bench only, not part of the bus contract: the echo firmware's answer (contract 8), bytes echoed unchanged.";
+CM_ BO_ 2566860284 "Bench only, not part of the bus contract: 8 bytes of 0xFF, every step while test.dut_hang is 1. Only the hang-test board build reacts (watchdog test).";
+BA_DEF_ "ProtocolType" STRING ;
+BA_DEF_ BO_ "VFrameFormat" ENUM "StandardCAN","ExtendedCAN","reserved","J1939PG";
+BA_DEF_ BO_ "GenMsgCycleTime" INT 0 65535;
+BA_DEF_DEF_ "ProtocolType" "";
+BA_DEF_DEF_ "VFrameFormat" "J1939PG";
+BA_DEF_DEF_ "GenMsgCycleTime" 0;
+BA_ "ProtocolType" "J1939";
+BA_ "VFrameFormat" BO_ 2348810279 3;
+BA_ "VFrameFormat" BO_ 2364539904 3;
+BA_ "VFrameFormat" BO_ 2566843904 3;
+BA_ "VFrameFormat" BO_ 2566844160 3;
+BA_ "VFrameFormat" BO_ 2566834688 3;
+BA_ "VFrameFormat" BO_ 2565668608 3;
+BA_ "VFrameFormat" BO_ 2565603072 3;
+BA_ "VFrameFormat" BO_ 2566856956 3;
+BA_ "VFrameFormat" BO_ 2365530407 3;
+BA_ "VFrameFormat" BO_ 2566860540 3;
+BA_ "VFrameFormat" BO_ 2566860583 3;
+BA_ "VFrameFormat" BO_ 2566860284 3;
+BA_ "GenMsgCycleTime" BO_ 2348810279 10;
+BA_ "GenMsgCycleTime" BO_ 2364539904 10;
+BA_ "GenMsgCycleTime" BO_ 2566843904 1000;
+BA_ "GenMsgCycleTime" BO_ 2566844160 500;
+BA_ "GenMsgCycleTime" BO_ 2566834688 1000;
+BA_ "GenMsgCycleTime" BO_ 2566856956 20;
+BA_ "GenMsgCycleTime" BO_ 2365530407 10;
+VAL_ 2348810279 OverrideControlMode 0 "Override disabled" 1 "Speed control" 2 "Torque control" 3 "Speed/torque limit control" ;
+VAL_ 2364539904 EngineTorqueMode 0 "Low idle governor/no request" 15 "Not available" ;
+VAL_ 2566834688 ProtectLampStatus 0 "Off" 1 "On" 3 "Not available" ;
+VAL_ 2566834688 AmberWarningLampStatus 0 "Off" 1 "On" 3 "Not available" ;
+VAL_ 2566834688 RedStopLampStatus 0 "Off" 1 "On" 3 "Not available" ;
+VAL_ 2566834688 MalfunctionIndicatorLampStatus 0 "Off" 1 "On" 3 "Not available" ;
+VAL_ 2565668608 ControlByte 32 "BAM" ;
+VAL_ 2566856956 FaultResetButton 0 "Released" 1 "Pressed" 3 "Not available" ;

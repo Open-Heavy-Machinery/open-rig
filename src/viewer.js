@@ -1,8 +1,15 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-/* The page: loads traces, draws them on a shared time axis, compares two, and draws the oracle's verdicts. See trace.js for the formats. */
+/* The page: loads traces, draws them on a shared time axis, compares two, draws the oracle's verdicts, and shows the bus (a frame log, decoded with a DBC). See trace.js, framelog.js, dbc.js and j1939.js for the formats. */
 (function () {
   'use strict';
   var T = window.RigTrace;
+  var FR = window.RigFrames;
+  var DB = window.RigDbc;
+  var J = window.RigJ1939;
+  var LANE_H = 26;
+  var LAT_H = 64;
+  var TO_DUT_COLOR = '#3987e5';
+  var FROM_DUT_COLOR = '#8250df';
   var PALETTE = ['#e06c24', '#3987e5', '#2da44e', '#bf3989', '#8250df', '#b08800', '#1b9aaa', '#cf222e'];
   var PLOT_H = 170;
   var STRIP_H = 20;
@@ -13,7 +20,9 @@
 
   var state = {
     a: null, b: null, layoutRaw: null, verdicts: null, verdictsName: '', selected: null, crit: null,
-    layout: null, hidden: {}, view: null, full: null, cursor: null, offsetB: 0, plots: [], strips: null
+    layout: null, hidden: {}, view: null, full: null, cursor: null, offsetB: 0, plots: [], strips: null,
+    frames: null, framesName: '', dbc: null, dbcName: '', bus: null, lanes: null, analysis: null, selFrame: null,
+    showLatency: false
   };
 
   function $(id) { return document.getElementById(id); }
@@ -77,7 +86,40 @@
     return true;
   }
 
+  function setFrames(text, name) {
+    var parsed = FR.parseFrameLog(text);
+    if (parsed.error) {
+      message(name + ': line ' + parsed.error.line + ': ' + parsed.error.message, true);
+      return false;
+    }
+    state.frames = parsed;
+    state.framesName = name;
+    state.selFrame = null;
+    var lost = parsed.frames.filter(function (f) { return f.lost; }).length;
+    $('name-f').textContent = name + ' · ' + parsed.frames.length + ' frames · bus_clock=' + parsed.meta.busClock +
+      (lost ? ' · ' + lost + ' lost' : '');
+    $('drop-f').classList.add('loaded');
+    return true;
+  }
+
+  function setDbc(text, name) {
+    var db = DB.parseDbc(text);
+    if (db.error) {
+      message(name + ': line ' + db.error.line + ': ' + db.error.message, true);
+      return false;
+    }
+    state.dbc = db;
+    state.dbcName = name;
+    $('name-d').textContent = name + ' · ' + db.messages.length + ' messages · ' + (db.j1939 ? 'J1939' : 'CAN') +
+      (db.warnings.length ? ' · ' + db.warnings.length + ' warnings' : '');
+    $('drop-d').classList.add('loaded');
+    if (db.warnings.length) { message(name + ': ' + db.warnings.join('; '), false); }
+    return true;
+  }
+
   function setSlot(slot, text, name) {
+    if (slot === 'f') { return setFrames(text, name); }
+    if (slot === 'd') { return setDbc(text, name); }
     if (slot === 'l') { return setLayout(text, name); }
     if (slot === 'v') { return setVerdicts(text, name); }
     return setTrace(slot, text, name);
@@ -101,7 +143,7 @@
 
   function loadUrls(spec) {
     var jobs = [];
-    ['a', 'b', 'l', 'v'].forEach(function (slot) {
+    ['a', 'b', 'l', 'v', 'f', 'd'].forEach(function (slot) {
       if (!spec[slot]) { return; }
       var name = spec[slot].split('/').pop();
       jobs.push(fetchText(spec[slot]).then(function (text) {
@@ -109,8 +151,8 @@
       }));
     });
     return Promise.all(jobs).then(function (results) {
-      /* a trace that failed to read has already said why; keep that message */
-      if (results.every(function (ok) { return ok; })) { message(''); }
+      /* a file that failed to read has already said why; keep that message (and the DBC's warnings) */
+      if (results.every(function (ok) { return ok; }) && !(state.dbc && state.dbc.warnings.length)) { message(''); }
       rebuild();
     }).catch(function (e) {
       message('Could not load the example (' + e.message + '). From a file:// page the browser blocks this; serve the folder, for example with "python3 -m http.server", or choose the files by hand.', true);
@@ -119,7 +161,10 @@
 
   function clearAll() {
     state.a = null; state.b = null; state.layoutRaw = null; state.verdicts = null; state.selected = null;
-    ['a', 'b', 'l', 'v'].forEach(function (s) { $('drop-' + s).classList.remove('loaded'); });
+    state.frames = null; state.dbc = null; state.selFrame = null;
+    ['a', 'b', 'l', 'v', 'f', 'd'].forEach(function (s) { $('drop-' + s).classList.remove('loaded'); });
+    $('name-f').textContent = 'the .frames.csv of the same run: every frame on the bus, with its two times';
+    $('name-d').textContent = 'a .dbc that names the frames and their signals';
     $('name-a').textContent = 'drop a .csv here or click to choose';
     $('name-b').textContent = 'to compare with A, for example a board against the simulator';
     $('name-l').textContent = 'a .json that says which columns go in which panel';
@@ -150,8 +195,17 @@
   }
 
   function fullRange() {
-    var lo = state.a.times[0];
-    var hi = state.a.times[state.a.times.length - 1];
+    var lo = Infinity;
+    var hi = -Infinity;
+    if (state.a) {
+      lo = state.a.times[0];
+      hi = state.a.times[state.a.times.length - 1];
+    }
+    if (state.frames && state.frames.sorted.length > 0) {
+      lo = Math.min(lo, state.frames.sorted[0].t);
+      hi = Math.max(hi, state.frames.sorted[state.frames.sorted.length - 1].t);
+    }
+    if (!isFinite(lo)) { lo = 0; hi = 1; }
     if (state.b) {
       lo = Math.min(lo, state.b.times[0] + state.offsetB);
       hi = Math.max(hi, state.b.times[state.b.times.length - 1] + state.offsetB);
@@ -177,9 +231,10 @@
   /* ------------------------------------------------------------ DOM */
 
   function rebuild() {
-    if (!state.a) { $('view').hidden = true; return; }
+    if (!state.a && !state.frames) { $('view').hidden = true; return; }
     state.colorIndex = {};
-    var warnings = computeLayout();
+    var warnings = state.a ? computeLayout() : [];
+    if (!state.a) { state.layout = { panels: [], states: [] }; }
     state.full = fullRange();
     state.view = state.full.slice();
     state.cursor = null;
@@ -197,7 +252,11 @@
     state.plots = [];
     state.crit = null;
     if (state.verdicts) { host.appendChild(buildCriteria()); }
+    /* the bus right under the criteria: a fault and the controller's reaction to it are read there first */
+    state.bus = null;
+    if (state.frames) { host.appendChild(buildBus()); }
     state.layout.panels.forEach(function (p, i) { host.appendChild(buildPanel(p, i)); });
+    state.strips = null;
     if (state.layout.states.length > 0) { host.appendChild(buildStrips()); }
     buildCompare();
     buildVerdictList();
@@ -426,7 +485,7 @@
     var wrap = $('compare-wrap');
     var table = $('compare');
     table.textContent = '';
-    if (!state.b) { wrap.hidden = true; return; }
+    if (!state.b || !state.a) { wrap.hidden = true; return; }
     var names = allNames(state.a.table).filter(function (n) { return n !== state.a.timeName; });
     var rows = T.compare(state.a, state.b, names, state.offsetB).filter(function (r) { return !T.isFlag(T.column(state.a.table, r.name)); });
     var head = table.createTHead().insertRow();
@@ -449,6 +508,380 @@
       message('Not compared: ' + (onlyA.length ? 'only in A: ' + onlyA.join(', ') + '. ' : '') + (onlyB.length ? 'only in B: ' + onlyB.join(', ') + '.' : ''), false);
     }
     wrap.hidden = false;
+  }
+
+  /* ------------------------------------------------------------ bus view */
+
+  function hex2(v, n) { return ('00000000' + v.toString(16).toUpperCase()).slice(-n); }
+
+  /* One lane per message (or identifier) × source address × direction, in time order. */
+  function computeLanes() {
+    var db = state.dbc;
+    var byKey = {};
+    var lanes = [];
+    state.frames.sorted.forEach(function (f) {
+      var msg = db ? J.messageFor(db, f) : null;
+      f.message = msg;
+      var j = db && db.j1939 && f.ext;
+      var src = j ? J.parts(f.id).source : null;
+      var name = msg ? msg.name : (f.ext ? hex2(f.id, 8) : hex2(f.id, 3));
+      var key = name + '|' + (src === null ? '' : src) + '|' + f.dir;
+      var lane = byKey[key];
+      if (!lane) {
+        lane = byKey[key] = {
+          name: name, source: src, dir: f.dir, frames: [], cycleMs: msg ? msg.cycleMs : null,
+          label: name + (src === null ? '' : ' · 0x' + hex2(src, 2)) + (f.dir === 'to_dut' ? ' → DUT' : ' ← DUT')
+        };
+        lanes.push(lane);
+      }
+      f.lane = lane;
+      lane.frames.push(f);
+    });
+    lanes.sort(function (a, b) {
+      if (a.dir !== b.dir) { return a.dir === 'to_dut' ? -1 : 1; }
+      return a.name < b.name ? -1 : a.name > b.name ? 1 : (a.source || 0) - (b.source || 0);
+    });
+    state.lanes = lanes;
+    state.analysis = (db && db.j1939) ? J.analyse(state.frames.sorted) : { bam: {}, tsc1: {} };
+  }
+
+  function busHeight() {
+    return M.top + state.lanes.length * LANE_H + (state.showLatency ? LAT_H + 18 : 0) + M.bottom;
+  }
+
+  function buildBus() {
+    computeLanes();
+    var box = document.createElement('div');
+    box.className = 'panel bus';
+    var h = document.createElement('h3');
+    var meta = state.frames.meta;
+    h.textContent = 'Bus (' + state.framesName + (state.dbc ? ', ' + state.dbcName : ', no dictionary') + ')';
+    box.appendChild(h);
+    var tools = document.createElement('div');
+    tools.className = 'bus-tools';
+    var lat = document.createElement('label');
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = state.showLatency;
+    cb.addEventListener('change', function () { state.showLatency = cb.checked; draw(); });
+    lat.appendChild(cb);
+    lat.appendChild(document.createTextNode(' t_bus − t_s (bus_clock=' + meta.busClock +
+      (meta.busClockErrNs === null ? '' : ', ±' + meta.busClockErrNs + ' ns') + ')'));
+    tools.appendChild(lat);
+    var key = document.createElement('span');
+    key.className = 'bus-key';
+    key.textContent = '| frame   ▯ lost (never reached its receiver)   red: corrupted, or a TSC1 that is not intact   — gap: more than twice the period without a frame   shade: a link fault';
+    tools.appendChild(key);
+    box.appendChild(tools);
+    var c = document.createElement('canvas');
+    c.setAttribute('role', 'img');
+    c.setAttribute('aria-label', 'Bus: ' + state.frames.frames.length + ' frames in ' + state.lanes.length + ' lanes: ' +
+      state.lanes.map(function (l) { return l.label + ' (' + l.frames.length + ')'; }).join(', ') + '. Choose a frame to decode it below.');
+    attachPointer(c);
+    attachBusClick(c);
+    box.appendChild(c);
+    var detail = document.createElement('div');
+    detail.className = 'frame-detail';
+    detail.id = 'frame-detail';
+    detail.setAttribute('aria-live', 'polite');
+    box.appendChild(detail);
+    state.bus = { canvas: c, detail: detail };
+    renderDetail();
+    return box;
+  }
+
+  function isBad(f) {
+    if (f.fault === 'corrupt') { return true; }
+    var t = state.analysis.tsc1[f.index];
+    return !!(t && !t.intact);
+  }
+
+  /* Frames of a lane inside the view, by binary search on t. */
+  function laneRange(lane) {
+    return [Math.max(0, FR.indexAtTime(lane.frames, state.view[0]) ), FR.indexAtTime(lane.frames, state.view[1])];
+  }
+
+  function drawBus() {
+    var g = setupCanvas(state.bus.canvas, busHeight());
+    var ctx = g.ctx;
+    var w = g.w;
+    drawAxes(ctx, w, g.h, 0, 1, false);
+    var stepS = state.frames.meta.stepNs / 1e9;
+    ctx.font = '11px ' + css('--mono');
+    state.lanes.forEach(function (lane, li) {
+      var y = M.top + li * LANE_H;
+      var tickTop = y + 13;
+      var tickBottom = y + LANE_H - 3;
+      ctx.fillStyle = css('--muted');
+      ctx.textAlign = 'left';
+      ctx.fillText(lane.label + '  ' + lane.frames.length, M.left + 2, y + 10);
+      var r = laneRange(lane);
+      if (r[1] < 0) { return; }
+      var color = lane.dir === 'to_dut' ? TO_DUT_COLOR : FROM_DUT_COLOR;
+      var lastPx = { normal: -1, lost: -1, bad: -1 };
+      var prevOk = null;
+      for (var i = Math.max(0, r[0] - 1); i <= Math.min(lane.frames.length - 1, r[1] + 1); i++) {
+        var f = lane.frames[i];
+        var x = xOf(f.t, w);
+        /* a link fault: the step it happened in, shaded */
+        if (f.fault !== '' && x >= M.left - 2 && x <= w - M.right) {
+          var x1 = xOf(f.t + stepS, w);
+          ctx.fillStyle = FAIL_COLOR;
+          ctx.globalAlpha = 0.12;
+          ctx.fillRect(Math.max(M.left, x), y + 11, Math.max(1, Math.min(w - M.right, x1) - Math.max(M.left, x)), LANE_H - 12);
+          ctx.globalAlpha = 1;
+        }
+        /* a gap: longer than twice the period with no frame that got through */
+        if (!f.lost) {
+          if (prevOk && lane.cycleMs && (f.t - prevOk.t) * 1000 > 2 * lane.cycleMs) {
+            var gx0 = Math.max(M.left, xOf(prevOk.t, w));
+            var gx1 = Math.min(w - M.right, x);
+            if (gx1 > gx0) {
+              ctx.strokeStyle = FAIL_COLOR;
+              ctx.lineWidth = 2;
+              ctx.beginPath(); ctx.moveTo(gx0, tickBottom + 1); ctx.lineTo(gx1, tickBottom + 1); ctx.stroke();
+            }
+          }
+          prevOk = f;
+        }
+        if (x < M.left - 1 || x > w - M.right + 1) { continue; }
+        var px = Math.round(x);
+        var kind = f.lost ? 'lost' : isBad(f) ? 'bad' : 'normal';
+        if (lastPx[kind] === px) { continue; }
+        lastPx[kind] = px;
+        if (kind === 'lost') {
+          ctx.strokeStyle = FAIL_COLOR;
+          ctx.lineWidth = 1;
+          ctx.strokeRect(px - 2.5, tickTop + 0.5, 5, tickBottom - tickTop - 1);
+        } else {
+          ctx.strokeStyle = kind === 'bad' ? FAIL_COLOR : color;
+          ctx.lineWidth = kind === 'bad' ? 2 : 1;
+          ctx.beginPath(); ctx.moveTo(px + 0.5, tickTop); ctx.lineTo(px + 0.5, tickBottom); ctx.stroke();
+        }
+      }
+      if (state.selFrame && state.selFrame.lane === lane) {
+        var sx = xOf(state.selFrame.t, w);
+        if (sx >= M.left && sx <= w - M.right) {
+          ctx.strokeStyle = css('--focus');
+          ctx.lineWidth = 2;
+          ctx.strokeRect(Math.round(sx) - 4.5, tickTop - 2.5, 9, tickBottom - tickTop + 5);
+        }
+      }
+    });
+    if (state.showLatency) { drawLatency(ctx, w, M.top + state.lanes.length * LANE_H + 14); }
+    drawCursor(ctx, w, g.h);
+    state.bus.w = w;
+  }
+
+  /* t_bus − t_s of every frame with a bus time, as dots, in ms. */
+  function drawLatency(ctx, w, top) {
+    var pts = [];
+    var lo = Infinity;
+    var hi = -Infinity;
+    var s = state.frames.sorted;
+    var i0 = Math.max(0, FR.indexAtTime(s, state.view[0]));
+    var i1 = FR.indexAtTime(s, state.view[1]);
+    for (var i = i0; i <= i1; i++) {
+      var ms = FR.latencyMs(s[i]);
+      if (ms === null) { continue; }
+      pts.push([s[i], ms]);
+      if (ms < lo) { lo = ms; }
+      if (ms > hi) { hi = ms; }
+    }
+    ctx.fillStyle = css('--muted');
+    ctx.textAlign = 'left';
+    ctx.fillText('t_bus − t_s (ms)' + (pts.length ? '' : ': no bus times in view'), M.left + 2, top - 3);
+    if (!pts.length) { return; }
+    if (hi === lo) { lo -= 1; hi += 1; }
+    var bottom = top + LAT_H;
+    var yOfMs = function (v) { return bottom - ((v - lo) / (hi - lo)) * LAT_H; };
+    ctx.textAlign = 'right';
+    ctx.fillText(+hi.toPrecision(4) + '', M.left - 6, top + 8);
+    ctx.fillText(+lo.toPrecision(4) + '', M.left - 6, bottom);
+    if (lo < 0 && hi > 0) {
+      ctx.strokeStyle = css('--hairline');
+      ctx.beginPath(); ctx.moveTo(M.left, yOfMs(0) + 0.5); ctx.lineTo(w - M.right, yOfMs(0) + 0.5); ctx.stroke();
+    }
+    var seen = {};
+    pts.forEach(function (p) {
+      var x = Math.round(xOf(p[0].t, w));
+      var y = Math.round(yOfMs(p[1]));
+      var k = x + ':' + y;
+      if (seen[k]) { return; }
+      seen[k] = true;
+      ctx.fillStyle = p[0].dir === 'to_dut' ? TO_DUT_COLOR : FROM_DUT_COLOR;
+      ctx.fillRect(x - 1, y - 1, 2, 2);
+    });
+  }
+
+  /* A click (not a drag) on a lane chooses the frame nearest to it, within 8 px. */
+  function attachBusClick(c) {
+    var down = null;
+    c.addEventListener('pointerdown', function (ev) { down = { x: ev.clientX, y: ev.clientY }; });
+    c.addEventListener('pointerup', function (ev) {
+      if (!down || Math.abs(ev.clientX - down.x) > 3 || Math.abs(ev.clientY - down.y) > 3) { down = null; return; }
+      down = null;
+      var rect = c.getBoundingClientRect();
+      var li = Math.floor((ev.clientY - rect.top - M.top) / LANE_H);
+      if (li < 0 || li >= state.lanes.length) { return; }
+      var lane = state.lanes[li];
+      var t = tOf(ev.clientX - rect.left, rect.width);
+      var k = FR.indexAtTime(lane.frames, t);
+      var best = null;
+      [k, k + 1].forEach(function (j) {
+        var f = lane.frames[j];
+        if (f && (!best || Math.abs(f.t - t) < Math.abs(best.t - t))) { best = f; }
+      });
+      if (best && Math.abs(xOf(best.t, rect.width) - (ev.clientX - rect.left)) <= 8) { selectFrame(best); }
+    });
+  }
+
+  /* The latency checkbox reflects state.showLatency only when built: rebuild the panel's controls. */
+  function buildBusAgain() {
+    var old = state.bus.canvas.parentNode;
+    var sel = state.selFrame;
+    old.parentNode.replaceChild(buildBus(), old);
+    state.selFrame = sel;
+    renderDetail();
+    draw();
+  }
+
+  function selectFrame(f) {
+    state.selFrame = f;
+    renderDetail();
+    draw();
+  }
+
+  function selectFrameByLine(line) {
+    if (!state.frames) { return; }
+    var f = state.frames.frames.filter(function (x) { return x.line === line; })[0];
+    if (!f) { message('No frame on line ' + line + ' of ' + state.framesName, true); return; }
+    var span = Math.max((state.full[1] - state.full[0]) / 50, 0.1);
+    clampView(f.t - span / 2, f.t + span / 2);
+    selectFrame(f);
+  }
+
+  function fmtValue(v) {
+    if (v === null || v === undefined) { return '–'; }
+    return Number.isInteger(v) ? String(v) : (+v.toPrecision(10)).toString();
+  }
+
+  function row(table, cells, cls) {
+    var tr = table.insertRow();
+    if (cls) { tr.className = cls; }
+    cells.forEach(function (t) { tr.insertCell().textContent = t; });
+    return tr;
+  }
+
+  function section(host, title) {
+    var h = document.createElement('h4');
+    h.textContent = title;
+    host.appendChild(h);
+    var table = document.createElement('table');
+    host.appendChild(table);
+    return table;
+  }
+
+  function dm1Rows(table, d) {
+    row(table, ['lamps', 'red stop ' + d.redStop + ', amber warning ' + d.amberWarning + ', MIL ' + d.mil + ', protect ' + d.protect]);
+    if (d.dtcs.length === 0) { row(table, ['trouble codes', 'none active']); }
+    d.dtcs.forEach(function (c, i) {
+      row(table, ['code ' + (i + 1), 'SPN ' + c.spn + ', FMI ' + c.fmi + ' (' + c.fmiText + '), occurrences ' + c.oc]);
+    });
+  }
+
+  function renderDetail() {
+    var host = state.bus && state.bus.detail;
+    if (!host) { return; }
+    host.textContent = '';
+    var f = state.selFrame;
+    if (!f) {
+      var p = document.createElement('p');
+      p.className = 'help';
+      p.textContent = 'Choose a frame in a lane to decode it here. Its place on the axis is t_s, the step it crossed the machine\'s side in; t_bus is when it was on the bus, measured.';
+      host.appendChild(p);
+      return;
+    }
+    var nav = document.createElement('div');
+    nav.className = 'frame-nav';
+    var i = f.lane.frames.indexOf(f);
+    [['← previous in this lane', i - 1], ['next in this lane →', i + 1]].forEach(function (b) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = b[0];
+      btn.disabled = !f.lane.frames[b[1]];
+      btn.addEventListener('click', function () {
+        var g = f.lane.frames[b[1]];
+        if (!g) { return; }
+        if (g.t < state.view[0] || g.t > state.view[1]) { var span = state.view[1] - state.view[0]; clampView(g.t - span / 2, g.t + span / 2); }
+        selectFrame(g);
+      });
+      nav.appendChild(btn);
+    });
+    host.appendChild(nav);
+
+    var t = section(host, 'Frame (line ' + f.line + ' of ' + state.framesName + ')');
+    var lat = FR.latencyMs(f);
+    row(t, ['t_s', f.t.toFixed(9) + ' s (logical: the step)']);
+    row(t, ['t_bus', f.tBus === null ? (f.lost && f.dir === 'to_dut' ? 'never on the bus' : 'not measured') : f.tBus.toFixed(9) + ' s (' + state.frames.meta.busClock + ')']);
+    if (lat !== null) { row(t, ['t_bus − t_s', fmtValue(lat) + ' ms']); }
+    row(t, ['direction', f.dir === 'to_dut' ? 'to the device under test' : 'from the device under test']);
+    row(t, ['link', f.link || '(none)']);
+    row(t, ['fault', f.fault || 'none'], f.fault ? 'bad' : '');
+    row(t, ['identifier', (f.ext ? hex2(f.id, 8) + ' (29-bit)' : hex2(f.id, 3) + ' (11-bit)') + (f.fd ? ', CAN FD' + (f.brs ? ', BRS' : '') : '')]);
+    row(t, ['data', f.len + ' bytes: ' + (f.hex.replace(/(..)/g, '$1 ').trim() || '(none)')]);
+    var j1939 = state.dbc && state.dbc.j1939 && f.ext;
+    if (j1939) {
+      var p1 = J.parts(f.id);
+      row(t, ['J1939', 'PGN ' + p1.pgn + ' (0x' + hex2(p1.pgn, 4) + '), priority ' + p1.priority + ', from 0x' + hex2(p1.source, 2) +
+        ' to ' + (p1.dest === 0xFF ? 'all (0xFF)' : '0x' + hex2(p1.dest, 2))]);
+    }
+
+    var msg = f.message;
+    if (!state.dbc) { return; }
+    if (!msg) {
+      var none = document.createElement('p');
+      none.className = 'help';
+      none.textContent = state.dbcName + ' has no message for this frame.';
+      host.appendChild(none);
+      return;
+    }
+    var st = section(host, msg.name + (msg.comment ? ': ' + msg.comment : ''));
+    var head = st.createTHead().insertRow();
+    ['signal', 'value', 'raw', 'meaning'].forEach(function (h) { var th = document.createElement('th'); th.textContent = h; head.appendChild(th); });
+    DB.decodeSignals(msg, f.data).forEach(function (s) {
+      var meaning = s.choice || '';
+      var special = false;
+      if (s.raw !== null && !s.choice) {
+        var allOnes = !s.signal.signed && s.signal.size >= 2 && s.raw === (1n << BigInt(s.signal.size)) - 1n;
+        if (j1939 && allOnes) { meaning = 'not available (J1939: all ones)'; special = true; }
+        else if (s.signal.min !== s.signal.max && (s.value < s.signal.min || s.value > s.signal.max)) {
+          meaning = 'outside the DBC range [' + s.signal.min + ' .. ' + s.signal.max + ']'; special = true;
+        }
+      }
+      row(st, [s.name, s.value === null ? '–' : (special ? '(' : '') + fmtValue(s.value) + (s.unit ? ' ' + s.unit : '') + (special ? ')' : ''),
+        s.raw === null ? 'outside the data' : '0x' + s.raw.toString(16).toUpperCase(), meaning]);
+    });
+
+    if (!j1939) { return; }
+    var tsc = state.analysis.tsc1[f.index];
+    if (tsc) {
+      var it = section(host, 'TSC1 integrity (J1939-71 byte 8)');
+      row(it, ['checksum (SPN 4207)', tsc.checksum + (tsc.checksumOk ? ', right' : ', wrong: J1939-71 gives ' + tsc.expected)], tsc.checksumOk ? '' : 'bad');
+      row(it, ['counter (SPN 4206)', tsc.counter + (tsc.step === null ? ', the first from this sender' :
+        tsc.step === 1 ? ', +1 since the last TSC1' : tsc.step === 0 ? ', repeated' : ', jumped by ' + tsc.step)], tsc.step === null || tsc.step === 1 ? '' : 'bad');
+      row(it, ['intact', tsc.intact ? 'yes' : 'no: a receiver that checks would refuse it'], tsc.intact ? '' : 'bad');
+    }
+    var bam = state.analysis.bam[f.index];
+    if (bam) {
+      var bt = section(host, 'BAM (J1939-21 transport)');
+      row(bt, ['carries', 'PGN ' + bam.pgn + ' (0x' + hex2(bam.pgn, 4) + '), ' + bam.size + ' bytes in ' + bam.packets + ' packets']);
+      row(bt, ['state', bam.complete ? 'complete' : 'incomplete: ' + bam.why], bam.complete ? '' : 'bad');
+      if (bam.dm1) { dm1Rows(section(host, 'DM1, reassembled'), bam.dm1); }
+    } else if (J.parts(f.id).pgn === J.PGN_DM1 && f.len >= 6) {
+      var d = J.decodeDm1(f.data);
+      if (d) { dm1Rows(section(host, 'DM1'), d); }
+    }
   }
 
   /* ------------------------------------------------------------ drawing */
@@ -677,11 +1110,12 @@
   }
 
   function draw() {
-    if (!state.a) { return; }
+    if (!state.a && !state.frames) { return; }
     state.bShift = state.b ? bTimes() : null;
     if (state.crit) { drawCriteria(); }
     state.plots.forEach(drawPlot);
     if (state.strips) { drawStrips(); }
+    if (state.bus) { drawBus(); }
     updateReadouts();
   }
 
@@ -756,7 +1190,7 @@
   /* ------------------------------------------------------------ wiring */
 
   function wire() {
-    ['a', 'b', 'l', 'v'].forEach(function (slot) {
+    ['a', 'b', 'l', 'v', 'f', 'd'].forEach(function (slot) {
       $('file-' + slot).addEventListener('change', function (ev) { loadFiles(slot, ev.target.files); ev.target.value = ''; });
       var zone = $('drop-' + slot);
       zone.addEventListener('dragover', function (ev) { ev.preventDefault(); zone.classList.add('over'); });
@@ -766,12 +1200,16 @@
         loadFiles(slot, ev.dataTransfer.files);
       });
     });
-    /* a file dropped anywhere else goes to A (then B), to the layout if it is JSON, to the verdicts if it ends in verdicts.csv */
+    /* a file dropped anywhere else goes to A (then B), to the layout if it is JSON, to the verdicts if it ends in
+     * verdicts.csv, to the frames if it ends in frames.csv, to the dictionary if it is a .dbc */
     document.addEventListener('dragover', function (ev) { ev.preventDefault(); });
     document.addEventListener('drop', function (ev) {
       ev.preventDefault();
       var f = ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files[0];
-      if (f) { loadFiles(/\.json$/i.test(f.name) ? 'l' : /verdicts\.csv$/i.test(f.name) ? 'v' : (state.a ? 'b' : 'a'), [f]); }
+      if (f) {
+        loadFiles(/\.json$/i.test(f.name) ? 'l' : /verdicts\.csv$/i.test(f.name) ? 'v' : /frames\.csv$/i.test(f.name) ? 'f' :
+          /\.dbc$/i.test(f.name) ? 'd' : (state.a ? 'b' : 'a'), [f]);
+      }
     });
     $('offset').addEventListener('input', function (ev) {
       var v = Number(ev.target.value);
@@ -795,11 +1233,21 @@
     $('ex-compare').addEventListener('click', example({ a: 'examples/flywheel.csv', b: 'examples/flywheel-heavier-load.csv' }));
     $('ex-graded').addEventListener('click', example({ a: 'examples/flywheel.csv', v: 'examples/flywheel.verdicts.csv' }));
     $('ex-failing').addEventListener('click', example({ a: 'examples/flywheel.csv', v: 'examples/flywheel-strict.verdicts.csv' }));
+    $('ex-bus').addEventListener('click', example({
+      a: 'examples/hoist_step.csv', l: 'examples/hoist_step.layout.json', v: 'examples/hoist_step.verdicts.csv',
+      f: 'examples/hoist_step.frames.csv', d: 'examples/open-crank.dbc'
+    }));
+    $('ex-corrupt').addEventListener('click', example({
+      a: 'examples/speed_command_corrupt.csv', l: 'examples/hoist_step.layout.json', v: 'examples/speed_command_corrupt.verdicts.csv',
+      f: 'examples/speed_command_corrupt.frames.csv', d: 'examples/open-crank.dbc'
+    }));
 
     var q = new URLSearchParams(location.search);
-    if (q.get('a') || q.get('b') || q.get('layout') || q.get('verdicts')) {
-      loadUrls({ a: q.get('a'), b: q.get('b'), l: q.get('layout'), v: q.get('verdicts') }).then(function () {
+    if (q.get('a') || q.get('b') || q.get('layout') || q.get('verdicts') || q.get('frames')) {
+      loadUrls({ a: q.get('a'), b: q.get('b'), l: q.get('layout'), v: q.get('verdicts'), f: q.get('frames'), d: q.get('dbc') }).then(function () {
         if (q.get('criterion')) { selectById(q.get('criterion')); }
+        if (q.get('frame')) { selectFrameByLine(Number(q.get('frame'))); }
+        if (q.get('latency') === '1' && state.bus) { state.showLatency = true; buildBusAgain(); }
       });
     }
   }

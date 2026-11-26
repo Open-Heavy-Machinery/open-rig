@@ -1,0 +1,9 @@
+id,verdict,status,from_s,until_s,event,event_s,reaction,reaction_ms,fail_s,text
+S1,PASS,ok,0.000000,0.490000,,,,,,SR-1: no override requested before the starter is pressed
+S2,PASS,ok,2.500000,25.000000,start=1,0.500000,measured,990,,speed control taken within 2 s of start and kept
+G1,PASS,ok,0.000000,25.000000,,,,,,SR-2: requested speed never above high idle (2100 rpm)
+G2,PASS,ok,0.000000,25.000000,,,,,,SR-3: pump commanded only while in speed control
+G3,PASS,ok,0.000000,25.000000,,,,,,SR-10: every TSC1 carries a valid checksum and a counter that moves by one
+H1,PASS,ok,5.000000,25.000000,,,,,,requested speed at the operator's 1500 rpm
+H2,PASS,ok,8.100000,17.990000,hoist_demand_pct=85,8.000000,measured,20,,pump follows the hoist lever (85 %) within 100 ms
+H3,PASS,ok,18.100000,25.000000,hoist_demand_pct=0,18.000000,measured,20,,SR-8: pump back to 0 within 100 ms of releasing the lever

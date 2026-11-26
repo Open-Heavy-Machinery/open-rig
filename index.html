@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>open-rig</title>
-<meta name="description" content="A viewer for open-tick traces: open one or two CSV files, plot them on a shared time axis and compare them. Everything runs in your browser; nothing is uploaded.">
+<meta name="description" content="A viewer for open-tick traces: open one or two CSV files, plot them on a shared time axis and compare them, with the oracle's verdicts and the CAN frames of the run. Everything runs in your browser; nothing is uploaded.">
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <link rel="stylesheet" href="src/style.css">
 </head>
@@ -38,6 +38,16 @@
       <span class="drop-hint" id="name-l">a .json that says which columns go in which panel</span>
       <input type="file" id="file-l" accept=".json,application/json">
     </label>
+    <label class="drop" id="drop-f">
+      <span class="drop-title">Frames <small>(optional)</small></span>
+      <span class="drop-hint" id="name-f">the .frames.csv of the same run: every frame on the bus, with its two times</span>
+      <input type="file" id="file-f" accept=".csv,text/csv,text/plain">
+    </label>
+    <label class="drop" id="drop-d">
+      <span class="drop-title">Bus dictionary <small>(optional)</small></span>
+      <span class="drop-hint" id="name-d">a .dbc that names the frames and their signals</span>
+      <input type="file" id="file-d" accept=".dbc,text/plain">
+    </label>
   </section>
 
   <section class="toolbar" aria-label="Options">
@@ -47,6 +57,8 @@
       <button type="button" id="ex-compare">flywheel: two loads, compared</button>
       <button type="button" id="ex-graded">flywheel, graded by the oracle</button>
       <button type="button" id="ex-failing">flywheel, a criterion that fails</button>
+      <button type="button" id="ex-bus">hoist step, with its bus (open-crank)</button>
+      <button type="button" id="ex-corrupt">a corrupted speed command, on the bus (open-crank)</button>
     </span>
     <label class="offset" id="offset-wrap" hidden>B time offset
       <input type="number" id="offset" value="0" step="0.001"> s
@@ -75,6 +87,7 @@
   <section class="about">
     <h2>What this reads</h2>
     <p>The CSV that open-tick writes: a header of column names, then one row per step, with no quotes. An empty cell is a gap. See <a href="https://github.com/Open-Heavy-Machinery/open-tick/blob/main/docs/trace-format.md">the trace format</a>. Without a layout, number columns are grouped by the unit their name ends in (<code>_rpm</code>, <code>_nm</code>, <code>_pct</code>, <code>_bar</code>, <code>_kpa</code>, <code>_c</code>), and text columns and 0/1 columns are drawn as state strips.</p>
+    <p>A frame log, written by open-tick (<code>--frames</code> in open-crank's runners), has every CAN frame of the run with two times: <code>t_s</code>, the step in which it crossed the simulated machine's side, which places it on the axis, and <code>t_bus_s</code>, when it was on the bus, measured by the clock the file names. See <a href="https://github.com/Open-Heavy-Machinery/open-tick/blob/main/docs/frame-log-format.md">the frame log format</a>. With a DBC file, each frame is named and its signals decoded; when the DBC says <code>ProtocolType "J1939"</code>, frames are matched by PGN, BAM transfers are reassembled, DM1 lamps and trouble codes are read, and each TSC1's counter and checksum are checked. open-crank's dictionary is <a href="examples/open-crank.dbc">open-crank.dbc</a>.</p>
     <p>A verdict file, written by open-tick's acceptance oracle, says for each criterion whether it passed, its time window, the event a reaction is timed from, where the reaction ended and where the criterion first failed. See <a href="https://github.com/Open-Heavy-Machinery/open-tick/blob/main/docs/verdict-format.md">the verdict format</a>.</p>
   </section>
 </main>
@@ -82,6 +95,9 @@
 <footer class="wrap foot">Part of <a href="https://open-heavy-machinery.github.io">Open Heavy Machinery</a> · Apache-2.0 · <a href="https://github.com/Open-Heavy-Machinery/open-rig">source</a></footer>
 
 <script src="src/trace.js"></script>
+<script src="src/framelog.js"></script>
+<script src="src/dbc.js"></script>
+<script src="src/j1939.js"></script>
 <script src="src/viewer.js"></script>
 </body>
 </html>

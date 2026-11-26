@@ -36,7 +36,7 @@ h2 { font-size: 1.1rem; margin: 24px 0 8px; }
 .lead { margin: 4px 0 0; color: var(--muted); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-.loaders { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 20px 0 12px; }
+.loaders { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0 12px; }
 .drop { position: relative; display: flex; flex-direction: column; gap: 4px; padding: 14px; background: var(--surface);
   border: 1px dashed var(--border); border-radius: 8px; cursor: pointer; min-height: 84px; }
 .drop:hover, .drop.over { border-color: var(--accent); }
@@ -86,3 +86,14 @@ th { color: var(--muted); font-weight: 600; }
 
 @media (max-width: 960px) { .loaders { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 720px) { .loaders { grid-template-columns: 1fr; } }
+
+.bus-tools { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; font-size: 0.8rem; color: var(--muted); margin: 0 0 4px; }
+.bus-key { font-family: var(--mono); }
+.frame-detail { padding: 6px 2px 4px; }
+.frame-detail h4 { margin: 10px 0 4px; font-size: 0.85rem; }
+.frame-detail table { font-size: 0.8rem; }
+.frame-detail td, .frame-detail th { text-align: left; }
+.frame-detail td { font-family: var(--mono); }
+.frame-detail tr.bad td { color: #cf222e; }
+.frame-nav { display: flex; gap: 8px; }
+.frame-nav button:disabled { opacity: 0.45; cursor: default; }
